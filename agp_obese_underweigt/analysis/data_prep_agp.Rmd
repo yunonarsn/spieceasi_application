@@ -1,0 +1,210 @@
+---
+title: "AGP BMI Prediction"
+output: 
+  html_document:    
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("ComplexHeatmap")
+library(phyloseq)
+```
+
+# BMI analysis with trac and two-stage procedure
+
+The aim of this document is to detect potential log-ratio pairs of possibly aggregated microbiome (compositional) data with additional non-compositional covariates that are predictive of BMI categories based on the American Gut Project data obtained from the reproducible repo of the trac paper.
+
+## Preprocess data
+
+Take the data from the AGP preprocessed data from the original trac paper reproducible code repo. The BMI calculation of the children is not accurate therefore we only include adults above 20. We want to distinguish between underweight and overweight observations.
+
+```{r}
+data <- readRDS("/Users/yunonarysina/Desktop/универ/SS25/Seminararbeit/agp_obese_underweigt/data/AGP_10.RDS")
+```
+
+
+Include only obese or underweight observations
+
+```{r}
+# expect warning for NA by coercion, that is wanted to remove wired
+# data for BMI
+library(tidyverse)
+data_subset <- data.frame(data@sam_data) %>%
+  mutate(bmi = as.numeric(as.character(bmi))) %>%
+  filter(bmi_cat %in% c("Obese", "Underweight"))
+```
+
+Extract a host related variables with subjects not having diabetes or have taken antibiotics the last year.
+
+
+```{r}
+levels_str <- c("Never", 
+                "Rarely (a few times/month)",
+                "Occasionally (1-2 times/week)",
+                "Regularly (3-5 times/week)",
+                "Daily")
+level_str_food <- c("Never", 
+                "Rarely (less than once/week)",
+                "Occasionally (1-2 times/week)",
+                "Regularly (3-5 times/week)",
+                "Daily")
+levels_sleep <- c("Less than 5 hours", 
+                 "5-6 hours",
+                 "6-7 hours",
+                 "7-8 hours",
+                 "8 or more hours")
+
+
+#          starts_with("non_food_allergies_"),
+relevant_features_1 <- data_subset %>%
+  select(bmi_cat,
+         alcohol_consumption,
+         exercise_frequency,
+         sleep_duration,
+         fruit_frequency,
+         vegetable_frequency,
+         age_years,
+         sex,
+         antibiotic_history,
+         diabetes,
+         non_food_allergies_unspecified,
+         allergic_to_i_have_no_food_allergies_that_i_know_of,
+         dog,
+         flossing_frequency,
+         frozen_dessert_frequency,
+         last_travel,
+         last_move,
+         milk_substitute_frequency,
+         nail_biter,
+         meat_eggs_frequency,
+         olive_oil,
+         one_liter_of_water_a_day_frequency,
+         prepared_meals_frequency,
+         probiotic_frequency,
+         red_meat_frequency,
+         seafood_frequency,
+         smoking_frequency,
+         sugar_sweetened_drink_frequency,
+         sugary_sweets_frequency,
+         teethbrushing_frequency,
+         vitamin_b_supplement_frequency,
+         vitamin_d_supplement_frequency,
+         whole_eggs,
+         whole_grain_frequency) %>%
+  mutate(across(.cols = everything(), as.character)) %>%
+  filter(antibiotic_history == "I have not taken antibiotics in the past year.") %>%
+  filter(diabetes == "I do not have this condition") %>%
+  select(-antibiotic_history, -diabetes) %>%
+  mutate(across(where(is.character), ~ str_replace_all(., "Unspecified", replacement = ""))) %>%
+  mutate(across(where(is.character), ~ str_replace_all(., "unknown", replacement = ""))) %>%
+  mutate(across(where(is.character), ~ str_replace_all(., "yes", replacement = "true"))) %>%
+  mutate(across(where(is.character), ~ str_replace_all(., "no", replacement = "false"))) %>%
+  mutate(across(where(is.character), ~ str_replace_all(., "Yes", replacement = "true"))) %>%
+  mutate(across(where(is.character), ~ str_replace_all(., "No", replacement = "false"))) %>%
+  mutate(across(where(is.character), ~ na_if(.,""))) 
+na_count <- sapply(relevant_features_1, function(x) sum(length(which(is.na(x)))))
+na_count <- names(na_count[na_count > 300])
+relevant_features_1 <- relevant_features_1 %>%
+select(-all_of(na_count)) %>%
+  na.omit() %>%
+  mutate(age_years = as.numeric(age_years)) %>%
+  filter(age_years >= 20)
+
+check_distinct_values <- relevant_features_1 %>% 
+  mutate(across(everything(), n_distinct))
+binary_names <- colnames(relevant_features_1)[which(check_distinct_values[1, ] == 2)]
+binary_names <- binary_names[binary_names != "sex"]
+
+food_levels <- c("frozen_dessert_frequency", "one_liter_of_water_a_day_frequency", 
+           "meat_eggs_frequency", "milk_substitute_frequency", "olive_oil",
+           "prepared_meals_frequency", "red_meat_frequency", "seafood_frequency",
+           "sugar_sweetened_drink_frequency",
+           "sugary_sweets_frequency", "whole_eggs", "whole_grain_frequency",
+           "fruit_frequency", "vegetable_frequency")
+normal_levels <- c("probiotic_frequency", "teethbrushing_frequency", 
+           "vitamin_b_supplement_frequency", "vitamin_d_supplement_frequency", 
+           "smoking_frequency", "exercise_frequency", "flossing_frequency"
+           )
+
+food_levels <- food_levels[!food_levels %in% na_count]
+normal_levels <- normal_levels[!normal_levels %in% na_count]
+
+relevant_features_2 <- relevant_features_1 %>%
+  mutate(bmi = as.numeric(bmi_cat == "Obese"),
+         sleep_duration = as.numeric(factor(sleep_duration,
+                                     levels = levels_sleep)),
+         sex = as.numeric(sex == "female"),
+         last_travel = as.numeric(last_travel == "I have falset been outside of my country of residence in the past year.")#,
+#         last_move = as.numeric(last_move == "I have lived in my current state of residence for more than a year."),
+        ) %>%
+  mutate(across(.cols = all_of(binary_names), ~ as.numeric(.x == "true"))) %>%
+#  mutate(across(.cols = all_of(food_levels), ~  as.numeric(factor(.x, levels = level_str_food)))) %>%
+  mutate(across(.cols = all_of(normal_levels), ~  as.numeric(factor(.x, levels = levels_str)))) %>%
+  select(-bmi_cat)
+
+relevant_features <- relevant_features_2
+```
+
+Create subset of the original phyloseq object to analyze and root in bacteria
+
+
+```{r}
+subset_logical <- rownames(relevant_features)
+data_subset <- prune_samples(subset_logical, data)
+agp <- phyloseq(otu_table(data_subset),
+                        tax_table(data_subset),
+                        sample_data(relevant_features))
+agp <- subset_taxa(agp , Rank1 == "k__Bacteria")
+# agp <- speedyseq::tax_glom(agp, taxrank = "Rank6", NArm = FALSE)
+agp
+
+saveRDS(agp, file = "/Users/yunonarysina/Desktop/универ/SS25/Seminararbeit/agp_obese_underweigt/data/agp_obeseunderweight_processed.RDS")
+getwd()
+```
+
+
+## Data processing for predicitive performance
+
+Preprocessing for trac, creating the A matrix
+
+```{r}
+# y <- (sample_data(agp)$bmi)
+# tax <- agp@tax_table@.Data
+# # add an OTU column
+# tax <- cbind(tax, rownames(tax))
+# colnames(tax)[ncol(tax)] <- "OTU"
+# 
+# # make it so labels are unique
+# for (i in seq(2, 7)) {
+#   # add a number when the type is unknown... e.g. "g__"
+#   ii <- nchar(tax[, i]) == 3
+#   if (sum(ii) > 0)
+#     tax[ii, i] <- paste0(tax[ii, i], 1:sum(ii))
+# }
+# # cumulative labels are harder to read but easier to work with:
+# for (i in 2:8) {
+#   tax[, i] <- paste(tax[, i-1], tax[, i], sep = "::")
+# }
+# tax <- as.data.frame(tax, stringsAsFactors = TRUE)
+# 
+# # form phylo object:
+# tree1 <- tax_table_to_phylo(~Rank1/Rank2/Rank3/Rank4/Rank5/Rank6/Rank7/OTU,
+#                             data = tax, collapse = TRUE)
+# 
+# # convert this to an A matrix to be used for aggregation:
+# A <- phylo_to_A(tree1)
+# 
+# dat <- list(y = y,
+#             x = t(agp@otu_table@.Data),
+#             tree = tree1,
+#             tax = tax,
+#             A = A,
+#             sample_data = as_tibble(sample_data(agp)))
+```
+
