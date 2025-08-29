@@ -47,7 +47,7 @@ agp_under <- subset_samples(agp_species_filt, group == 0)   # underweight
 net_group <- netConstruct(data = agp_obese, data2 = agp_under,
                           measure = "spieceasi",
                           filtTax = "none",
-                          sparsMethod = "threshold",   # or "topology"
+                          sparsMethod = "threshold",
                           thresh = 0.3,
                           verbose = 3)
 
@@ -113,32 +113,27 @@ abundances <- pheatmap(abund_mat_log,
 ggsave(abundances, filename = "Plots/Abundance_heatmap_log_scaled.pdf", width = 10, height = 8)
 
 
-# Gruppierung
+# Grouped Heatmap
 groups <- sample_data(agp_species_filt)$group
 groups <- factor(groups, levels = c("0", "1"))
 names(groups) <- colnames(abund_mat_log)
 col_order <- names(sort(groups))
-# Reorder the abundance matrix
 abund_mat_log_ordered <- abund_mat_log[, col_order]
-
-# Reorder the annotation factor
-groups_ordered <- groups[col_order]# Farben für die Annotation
+groups_ordered <- groups[col_order]
 ann_colors <- list(Group = c("0" = "blue", "1" = "red"))
 
-# Annotation-Objekt für die Spalten
+
 ha <- HeatmapAnnotation(
   Group = groups_ordered,
   col = ann_colors,
   annotation_legend_param = list(Group = list(title = "Group"))
 )
 
-# Farbpalette für Abundanzen
 col_fun <- colorRamp2(
   c(min(abund_mat_log_ordered), 0, max(abund_mat_log_ordered)),
   c("white", "pink", "red")
 )
 
-# Heatmap zeichnen
 Heatmap(abund_mat_log_ordered,
         name = "Abundance",
         col = col_fun,

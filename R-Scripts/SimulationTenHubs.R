@@ -1,5 +1,9 @@
+# ===============================
+# 1. Load libraries
+# ===============================
 library(igraph)
-library(MASS)  # for mvrnorm
+library(igraph)
+library(MASS)
 library(pheatmap)
 library(huge)
 library(pulsar)
@@ -9,8 +13,10 @@ library(SpiecEasi)
 library(tidyverse)
 library(ggplot2)
 
-
 set.seed(123)
+# ======================================
+# 2. Helper functions to simulate topology and replace non zero values in precision matrix
+# ======================================
 make_ten_hub_adj <- function(n_per_hub = 20, connect_hubs = FALSE, w = 1) {
   n_hubs <- 10
   p <- n_hubs * n_per_hub
@@ -38,38 +44,42 @@ make_ten_hub_adj <- function(n_per_hub = 20, connect_hubs = FALSE, w = 1) {
   return(A)
 }
 replace_non_zero_values_from_the_selected_topology <- function(topology, p = 5) {
-  # Replace non-zero values with a specific value, e.g., 1
   topology[topology != 0] <- 1/p
   return(topology)
 }
 
-
-hub_topology = make_ten_hub_adj(n_per_hub = 20, connect_hubs = FALSE, w = 1)
+# ======================================
+# 3. Simulate ten-hub topology and create plot
+# ======================================
+hub_topology <- make_ten_hub_adj(n_per_hub = 20, connect_hubs = FALSE, w = 1)
 g <- graph_from_adjacency_matrix(hub_topology, mode = "undirected", diag = FALSE)
 deg <- degree(g)
 max_deg <- max(deg)
 hub_nodes <- which(deg == max_deg)
 
-# Color nodes: red for hubs, blue for others
 vertex_colors <- rep("#377EB8", vcount(g))
 vertex_colors[hub_nodes] <- "#E41A1C"
 
-# Plot
 ten_hub <- plot(g, vertex.size = 5, vertex.label = NA, vertex.color = vertex_colors, layout = layout_with_fr)
 ggsave(filename = "Plots/ten_hub_network.pdf", plot = ten_hub, height = 9, width = 10)
 
-True_network = hub_topology #adjacency matrix
+# ======================================
+# 4. Create precision and covariance matrix to simulate data
+# ======================================
+True_network <- hub_topology
 
-your_precision_from_your_topology = replace_non_zero_values_from_the_selected_topology(True_network, p= 5)
-diag(your_precision_from_your_topology) <- 1
-precision = your_precision_from_your_topology
-cov_mat = prec2cov(precision)
+precision_matrix <- replace_non_zero_values_from_the_selected_topology(True_network, p= 5)
+diag(precision_matrix) <- 1
+precision <- precision_matrix
+cov_mat <- prec2cov(precision)
 
 sim_data <- function(n, cov_mat) {
   MASS::mvrnorm(n = n, mu = rep(0, nrow(cov_mat)), Sigma = cov_mat)
 }
 
-
+# ======================================
+# 5. Helper functions for hamming distance and jaccard index
+# ======================================
 hamming <- function(est, true) {
   sum(est != true)
 }
@@ -80,12 +90,15 @@ jaccard <- function(est, true) {
   intersection / union
 }
 
+# ======================================
+# 6.Actual Simulation
+# ======================================
 # --- Parameters ---
 n_reps <- 10
 methods <- c("MB", "glasso")
-thresholds <- seq(0.01, 1, by = 0.01)  # edge probability thresholds
+thresholds <- seq(0.01, 1, by = 0.01)
 
-# Initialize storage
+# Initialize where to store all results
 results_10 <- data.frame(
   method = rep(methods, each = n_reps),
   hamming = NA,
@@ -102,9 +115,9 @@ opt_lambdas_10 <- data.frame()
 # --- Simulation loop ---
 for (i in 1:n_reps) {
   n <- 200
-  df <- sim_data(n, cov_mat)  # simulate data
+  df <- sim_data(n, cov_mat)
   lmax <- getMaxCov(df, cov = FALSE)
-  lams <- getLamPath(lmax, lmax*0.001, len=60) # for p=40 lmax * 0.05; 001 works m=for mb but not glasso..
+  lams <- getLamPath(lmax, lmax*0.001, len=60)
 
   for (m in methods) {
     hugeargs <- list(lambda = lams, verbose = FALSE, method = tolower(m))
@@ -184,23 +197,22 @@ for (i in 1:n_reps) {
   }
 }
 
-# --- results_10 ready for plotting ---
+# --- Results ready for plotting ---
 # Lambda vs sparsity / instability: all_lambda_df_10
 # Recall vs threshold: recall_df_10
 # Edge probability distributions: edge_prob_df_10
 # Hamming/Jaccard/F1 per method: results_10
 
 
-library(ggplot2)
-library(dplyr)
-## Lambda vs Sparsity
-# Average across simulations
+# ======================================
+# 7. Lambda vs. Sparisty plot
+# ======================================
 avg_lambda_10 <- all_lambda_df_10 %>%
   group_by(method, lambda) %>%
   summarise(sparsity = mean(sparsity), .groups = "drop")
 
 p200.plot.sparsity <- ggplot(avg_lambda_10, aes(x=lambda, y=sparsity, color=method)) +
-  geom_line(size=1.3) + # Lambda usually plotted decreasing
+  geom_line(size=1.3) +
   labs(title="Lambda vs. Sparsity", x="Lambda", y="Sparsity", subtitle = "p = 200, n = 200") +
   theme_bw() +
   scale_color_brewer(palette = "Set1", name = "Method")+
@@ -219,7 +231,9 @@ p200.plot.sparsity <- ggplot(avg_lambda_10, aes(x=lambda, y=sparsity, color=meth
     legend.text = element_text(size=24)
   )
 
-## Lambda vs Instability
+# ======================================
+# 8. Lambda vs. Edge Instability plot
+# ======================================
 avg_instability_10 <- all_lambda_df_10 %>%
   group_by(method, lambda) %>%
   summarise(instability = mean(instability), .groups = "drop")
@@ -246,7 +260,9 @@ p200.plot.instability <- ggplot(avg_instability_10, aes(x=lambda, y=instability,
   geom_hline(yintercept = 0.05, linetype="dashed", color = "black", size=1)
 
 
-## Recall vs Threshold
+# ======================================
+# 9. Recall vs. Edge Threshold plot
+# ======================================
 avg_recall_10 <- recall_df_10 %>%
   group_by(method, threshold) %>%
   summarise(recall = mean(recall), .groups = "drop")
@@ -272,7 +288,9 @@ p200.plot.recall <- ggplot(avg_recall_10, aes(x=threshold, y=recall, color=metho
     legend.text = element_text(size=24)
   )
 
-## Edge Probability Distribution
+# ======================================
+# 10. Edge probability distribution plot
+# ======================================
 p200.plot.edgedist <- ggplot(edge_prob_df_10, aes(x=edge_prob, fill=method, color=method)) +
   geom_density(alpha=0.7) +
   labs(title="Edge Probability Distributions",
@@ -295,7 +313,9 @@ p200.plot.edgedist <- ggplot(edge_prob_df_10, aes(x=edge_prob, fill=method, colo
     legend.position = "none"
   )
 
-## Hamming/Jaccard/F1 Scores
+# ======================================
+# 11. PLot with Hamming distance, jaccard index and F1 Score
+# ======================================
 results_10_long <- results_10 %>%
   tidyr::pivot_longer(cols = c(hamming, jaccard, f1),
                       names_to = "metric", values_to = "value")
@@ -327,6 +347,7 @@ p200.plot.distance <- ggplot(results_10_long, aes(x=method, y=value, fill=method
     panel.grid.minor = element_blank(),
     legend.position = "none"
   )
+# --- Average optimal lambda for each method ---
 opt_lambdas_10 %>%
   group_by(method) %>%
   summarise(mean_opt_lambda = mean(opt_lambda))
@@ -336,13 +357,16 @@ p200.plot.instability
 p200.plot.recall
 p200.plot.edgedist
 p200.plot.distance
-
+# ======================================
+# 12. Save all plots as pdf
+# ======================================
 ggsave(filename = "Plots/p200n200sparisty.pdf", plot = p200.plot.sparsity, height = 9, width = 10)
 ggsave(filename = "Plots/p200n200instability.pdf", plot = p200.plot.instability, height = 9, width = 10)
 ggsave(filename = "Plots/p200n200recall.pdf", plot = p200.plot.recall, height = 9, width = 10)
 ggsave(filename = "Plots/p200n200edgedist.pdf", plot = p200.plot.edgedist, height = 8, width = 13)
 ggsave(filename = "Plots/p200n200distance.pdf", plot = p200.plot.distance, height = 9, width = 13)
 
+# --- Heatmap of example network (last network that ran in simulation)---
 heatmap <-pheatmap(est,
          cluster_rows = FALSE,  # keep nodes in original order
          cluster_cols = FALSE,
@@ -351,9 +375,9 @@ heatmap <-pheatmap(est,
          fontsize = 20,
          border_color = "grey")
 
-
 ggsave(filename = "Plots/heatmap.pdf", plot = heatmap, height = 10, width = 12)
 
+# --- median values for hamming distance and the other metrics---
 results_10_long %>%
   group_by(method, metric) %>%
   summarise(median = median(value))
