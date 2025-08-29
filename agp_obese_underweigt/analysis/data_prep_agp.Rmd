@@ -25,7 +25,7 @@ The aim of this document is to detect potential log-ratio pairs of possibly aggr
 Take the data from the AGP preprocessed data from the original trac paper reproducible code repo. The BMI calculation of the children is not accurate therefore we only include adults above 20. We want to distinguish between underweight and overweight observations.
 
 ```{r}
-data <- readRDS("/Users/yunonarysina/Desktop/универ/SS25/Seminararbeit/agp_obese_underweigt/data/AGP_10.RDS")
+data <- readRDS(".../agp_obese_underweigt/data/AGP_10.RDS")
 ```
 
 
@@ -164,7 +164,7 @@ agp <- subset_taxa(agp , Rank1 == "k__Bacteria")
 # agp <- speedyseq::tax_glom(agp, taxrank = "Rank6", NArm = FALSE)
 agp
 
-saveRDS(agp, file = "/Users/yunonarysina/Desktop/универ/SS25/Seminararbeit/agp_obese_underweigt/data/agp_obeseunderweight_processed.RDS")
+saveRDS(agp, file = ".../agp_obese_underweigt/data/agp_obeseunderweight_processed.RDS")
 getwd()
 ```
 
