@@ -55,6 +55,6 @@ Some of the plots follow a certain scheme:
 * p40n200_* ->low-dimensional plots from the two-hub simulation
 * p200n200_* -> high-dimensional plots from the ten-hub simulation
 
-# agp_obese_underweigt/
+# 🦠 agp_obese_underweigt/
 This folder contains the code for the data aggregation (in the subfolder analysis/).
 Since the original dataset is too large to upload to github, the already processed data is included in the subfolder data/.
